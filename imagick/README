@@ -1,0 +1,8 @@
+This is a stripped-down copy of https://github.com/gographics/imagick/ .
+
+The copy was nesessary, because the original didn't work out-of-the-box with
+too old default ImageMagick library provided by ubuntu 12.04.
+
+Additional functionality provided by ImageMagick can be easily added here -
+just see the source code and http://www.imagemagick.org/script/magick-wand.php .
+
