@@ -4,6 +4,8 @@ import (
 	"./imagick/imagick"
 	"flag"
 	"fmt"
+	"github.com/mitchellh/goamz/aws"
+	"github.com/mitchellh/goamz/s3"
 	"github.com/valyala/ybc/bindings/go/ybc"
 	"io"
 	"io/ioutil"
@@ -19,10 +21,15 @@ var (
 	maxImageSize               = flag.Int64("maxImageSize", 10*1024*1024, "The maximum image size which can be read from imageUrl")
 	maxUpstreamCacheItemsCount = flag.Int("maxCachedImagesCount", 10*1000, "The maximum number of images the resizer can cache from upstream servers. Increase this value for saving more upstream bandwidth")
 	maxUpstreamCacheSize       = flag.Int("maxUpstreamCacheSize", 100, "The maximum total size in MB of images the resizer cache cache from upstream servers. Increase this value for faving more upstream bandidth")
+	s3AccessKey                = flag.String("s3AccessKey", "foobar", "Access key for Amazon S3")
+	s3BucketName               = flag.String("s3Bucket", "bucket", "Amazon S3 bucket for loading images")
+	s3Region                   = flag.String("s3Region", "eu-west-1", "Amazon region to route S3 requests to")
+	s3SecretKey                = flag.String("s3SecretKey", "foobaz", "Secret key for Amazon S3")
 	upstreamCacheFilename      = flag.String("upstreamCacheFilename", "", "Path to cache file for images loaded from upstream. Leave blank for anonymous non-persistent cache")
 )
 
 var (
+	s3Bucket      *s3.Bucket
 	upstreamCache ybc.Cacher
 )
 
@@ -34,6 +41,8 @@ func main() {
 
 	upstreamCache = openUpstreamCache()
 	defer upstreamCache.Close()
+
+	s3Bucket = getS3Bucket()
 
 	if err := http.ListenAndServe(*listenAddr, http.HandlerFunc(serveHTTP)); err != nil {
 		logFatal("Error when starting or running http server: %v", err)
@@ -179,12 +188,21 @@ func sendResponse(w http.ResponseWriter, r *http.Request, mw *imagick.MagickWand
 
 func getImageParams(r *http.Request) (imageUrl string, width, height uint, compressionQuality uint, sharpFactor float64, bottomAnnotation, centerAnnotation string) {
 	imageUrl = r.FormValue("imageUrl")
-	if len(imageUrl) == 0 {
-		logRequestError(r, "Missing imageUrl request parameter")
-		return
+	if imageUrl == "" {
+		imageUrl = r.URL.Path[1:]
+		parts := strings.SplitN(imageUrl, "_", 4)
+		if len(parts) != 4 {
+			logRequestError(r, "imageUrl=%s must contain at least four parts delimited by '_'")
+			imageUrl = ""
+			return
+		}
+		imageUrl = fmt.Sprintf("s3:%s_%s", parts[0], parts[3])
+		width = parseUint(r, "width", parts[1][1:])
+		height = parseUint(r, "height", parts[2][1:])
+	} else {
+		width = getUint(r, "width")
+		height = getUint(r, "height")
 	}
-	width = getUint(r, "width")
-	height = getUint(r, "height")
 	compressionQuality = getUint(r, "compressionQuality")
 	sharpFactor = getFloat64(r, "sharpFactor")
 	bottomAnnotation = r.FormValue("bottomAnnotation")
@@ -207,16 +225,20 @@ func getFloat64(r *http.Request, key string) float64 {
 
 func getUint(r *http.Request, key string) uint {
 	v := r.FormValue(key)
+	return parseUint(r, key, v)
+}
+
+func parseUint(r *http.Request, k, v string) uint {
 	if len(v) == 0 {
 		return 0
 	}
 	n, err := strconv.Atoi(v)
 	if err != nil {
-		logRequestError(r, "Cannot parse %s=%v: %v", key, v, err)
+		logRequestError(r, "Cannot parse %s=%v: %v", k, v, err)
 		return 0
 	}
 	if n < 0 {
-		logRequestError(r, "%s=%v must be positive", key, v)
+		logRequestError(r, "%s=%v must be positive", k, v)
 		return 0
 	}
 	return uint(n)
@@ -244,19 +266,27 @@ func getImageBlob(r *http.Request, imageUrl string) []byte {
 		logFatal("Unexpected error when reading data from upstream cache under the key=%v: %v", imageUrl, err)
 	}
 
-	resp, err := http.Get(imageUrl)
-	if err != nil {
-		logRequestError(r, "Cannot load image from imageUrl=%v: %v", imageUrl, err)
-		return nil
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		logRequestError(r, "Unexpected StatusCode=%d returned from imageUrl=%v", resp.StatusCode, imageUrl)
-		return nil
-	}
-	if blob, err = ioutil.ReadAll(io.LimitReader(resp.Body, *maxImageSize)); err != nil {
-		logRequestError(r, "Error when reading image body from imageUrl=%v: %v", imageUrl, err)
-		return nil
+	if strings.Index(imageUrl, "s3:") == 0 {
+		key := imageUrl[3:]
+		if blob, err = s3Bucket.Get(key); err != nil {
+			logRequestError(r, "Cannot fetch image by key=[%s] from Amazon S3: %v", key, err)
+			return nil
+		}
+	} else {
+		resp, err := http.Get(imageUrl)
+		if err != nil {
+			logRequestError(r, "Cannot load image from imageUrl=%v: %v", imageUrl, err)
+			return nil
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			logRequestError(r, "Unexpected StatusCode=%d returned from imageUrl=%v", resp.StatusCode, imageUrl)
+			return nil
+		}
+		if blob, err = ioutil.ReadAll(io.LimitReader(resp.Body, *maxImageSize)); err != nil {
+			logRequestError(r, "Error when reading image body from imageUrl=%v: %v", imageUrl, err)
+			return nil
+		}
 	}
 
 	if err = upstreamCache.Set([]byte(imageUrl), blob, ybc.MaxTtl); err != nil {
@@ -267,6 +297,19 @@ func getImageBlob(r *http.Request, imageUrl string) []byte {
 		}
 	}
 	return blob
+}
+
+func getS3Bucket() *s3.Bucket {
+	auth := aws.Auth{
+		AccessKey: *s3AccessKey,
+		SecretKey: *s3SecretKey,
+	}
+	region, ok := aws.Regions[*s3Region]
+	if !ok {
+		logFatal("Unknown s3Region: %s", s3Region)
+	}
+	connection := s3.New(auth, region)
+	return connection.Bucket(*s3BucketName)
 }
 
 func openUpstreamCache() ybc.Cacher {
