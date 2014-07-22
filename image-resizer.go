@@ -147,14 +147,14 @@ func adjustImageDimensions(mw *imagick.MagickWand, width, height uint) (uint, ui
 		return 0, 0, false
 	}
 
-	if width == 0 {
-		width = height
-	} else if height == 0 {
-		height = width
-	}
-
 	ow := mw.GetImageWidth()
 	oh := mw.GetImageHeight()
+
+	if width == 0 {
+		width = uint(float64(height) * float64(ow) / float64(oh))
+	} else if height == 0 {
+		height = uint(float64(width) * float64(oh) / float64(ow))
+	}
 
 	if ow <= width && oh <= height {
 		return ow, oh, false
