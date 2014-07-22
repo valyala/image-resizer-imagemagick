@@ -64,8 +64,19 @@ func serveHTTP(w http.ResponseWriter, r *http.Request) {
 	mw := imagick.NewMagickWand()
 	defer mw.Destroy()
 
-	if !loadImage(r, mw, imageUrl) {
+	blob := getImageBlob(r, imageUrl)
+	if blob == nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
+		return
+	}
+	if err := mw.ReadImageBlob(blob); err != nil {
+		if !strings.HasSuffix(imageUrl, ".ico") {
+			logRequestError(r, "Cannot parse image from imageUrl=%v: %v", imageUrl, err)
+			// return skipped intentionally
+		}
+		if _, err = w.Write(blob); err != nil {
+			logRequestError(r, "Cannot send image from imageUrl=%v to client: %v", imageUrl, err)
+		}
 		return
 	}
 
@@ -241,18 +252,6 @@ func parseUint(r *http.Request, k, v string) uint {
 		return 0
 	}
 	return uint(n)
-}
-
-func loadImage(r *http.Request, mw *imagick.MagickWand, imageUrl string) bool {
-	blob := getImageBlob(r, imageUrl)
-	if blob == nil {
-		return false
-	}
-	if err := mw.ReadImageBlob(blob); err != nil {
-		logRequestError(r, "Cannot parse image from imageUrl=%v: %v", imageUrl, err)
-		return false
-	}
-	return true
 }
 
 func getImageBlob(r *http.Request, imageUrl string) []byte {
