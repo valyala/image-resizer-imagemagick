@@ -20,7 +20,7 @@ var (
 	listenAddr                 = flag.String("listenAddr", ":8081", "TCP address to listen to")
 	maxImageSize               = flag.Int64("maxImageSize", 10*1024*1024, "The maximum image size which can be read from imageUrl")
 	maxUpstreamCacheItemsCount = flag.Int("maxCachedImagesCount", 10*1000, "The maximum number of images the resizer can cache from upstream servers. Increase this value for saving more upstream bandwidth")
-	maxUpstreamCacheSize       = flag.Int("maxUpstreamCacheSize", 100, "The maximum total size in MB of images the resizer cache cache from upstream servers. Increase this value for faving more upstream bandidth")
+	maxUpstreamCacheSize       = flag.Int("maxUpstreamCacheSize", 100, "The maximum total size in MB of images the resizer cache cache from upstream servers. Increase this value for saving more upstream bandwidth")
 	s3AccessKey                = flag.String("s3AccessKey", "foobar", "Access key for Amazon S3")
 	s3BucketName               = flag.String("s3Bucket", "bucket", "Amazon S3 bucket for loading images")
 	s3Region                   = flag.String("s3Region", "eu-west-1", "Amazon region to route S3 requests to")
