@@ -192,8 +192,7 @@ func getImageParams(r *http.Request) (imageUrl string, width, height uint, compr
 		imageUrl = r.URL.Path[1:]
 		parts := strings.SplitN(imageUrl, "_", 4)
 		if len(parts) != 4 {
-			logRequestError(r, "imageUrl=%s must contain at least four parts delimited by '_'", imageUrl)
-			imageUrl = ""
+			imageUrl = fmt.Sprintf("s3:%s", imageUrl)
 			return
 		}
 		imageUrl = fmt.Sprintf("s3:%s_%s", parts[0], parts[3])
