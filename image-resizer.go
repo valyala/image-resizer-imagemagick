@@ -77,13 +77,13 @@ func serveHTTP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
+		if sharpFactor >= 0 {
+			mw.SharpenImage(0, sharpFactor)
+		}
 	}
 	annotateImage(mw, bottomAnnotation, imagick.GRAVITY_SOUTH)
 	annotateImage(mw, centerAnnotation, imagick.GRAVITY_CENTER)
 
-	if sharpFactor >= 0 {
-		mw.SharpenImage(0, sharpFactor)
-	}
 	if compressionQuality == 0 {
 		compressionQuality = *defaultCompressionQuality
 	}
