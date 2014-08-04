@@ -207,7 +207,17 @@ func getImageParams(r *http.Request) (imageUrl string, width, height uint, compr
 			return
 		}
 		imageUrl = fmt.Sprintf("s3:%s_%s", parts[0], parts[3])
+
+		if parts[1][0] != 'w' {
+			logRequestError(r, "Unexpected prefix for image width: '%c'. Expected 'w'", parts[1][0])
+			return
+		}
 		width = parseUint(r, "width", parts[1][1:])
+
+		if parts[2][0] != 'h' {
+			logRequestError(r, "Unexpected prefix for image height: '%c'. Expected 'h'", parts[2][0])
+			return
+		}
 		height = parseUint(r, "height", parts[2][1:])
 	} else {
 		width = getUint(r, "width")
